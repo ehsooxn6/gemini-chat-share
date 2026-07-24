@@ -128,6 +128,14 @@
         font-size: 1rem;
         outline: 0;
       }
+      .search-toggle {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        color: #65676b;
+        font-size: 0.78rem;
+        white-space: nowrap;
+      }
       #send-btn {
         padding: 10px 16px;
         background: #0084ff;
@@ -156,7 +164,9 @@
         id="name-input"
         value="Anonymous"
         placeholder="Name"
-      /><input
+      /><label class="search-toggle"
+        ><input type="checkbox" id="search-toggle" /> Web search</label
+      ><input
         type="text"
         id="message-input"
         placeholder="Ask Gemini..."
@@ -174,14 +184,154 @@
         messagingSenderId: "438937384325",
         appId: "1:438937384325:web:426b9a22b3c30ac32f00ec",
       };
-      const GEMINI_MODEL = "gemini-3.6-flash";
       firebase.initializeApp(firebaseConfig);
       const db = firebase.database();
       const chatRef = db.ref("chats");
+      const modelQuotaRef = db.ref("modelQuota");
       const chatBox = document.getElementById("chat-box");
       const messageInput = document.getElementById("message-input");
       const nameInput = document.getElementById("name-input");
+      const searchToggle = document.getElementById("search-toggle");
       const sendBtn = document.getElementById("send-btn");
+      const MODEL_DAILY_LIMITS = {
+        "gemini-3.6-flash": 20,
+        "gemini-3.5-flash": 20,
+        "gemini-3.5-flash-lite": 500,
+        "gemini-3.1-flash-lite": 500,
+        "gemini-2.5-flash": 20,
+        "gemini-2.5-flash-lite": 20,
+      };
+      let quotaDate = "";
+      let quotaState = {};
+      let quotaListener;
+      let quotaStateReady = Promise.resolve();
+
+      function getPacificDateKey() {
+        const values = Object.fromEntries(
+          new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/Los_Angeles",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          })
+            .formatToParts(new Date())
+            .filter(({ type }) => type !== "literal")
+            .map(({ type, value }) => [type, value]),
+        );
+
+        return `${values.year}-${values.month}-${values.day}`;
+      }
+
+      function syncQuotaState() {
+        const nextQuotaDate = getPacificDateKey();
+        if (quotaDate === nextQuotaDate) return quotaStateReady;
+
+        if (quotaListener) {
+          modelQuotaRef.child(quotaDate).off("value", quotaListener);
+        }
+
+        quotaDate = nextQuotaDate;
+        quotaState = {};
+        quotaStateReady = new Promise((resolve) => {
+          quotaListener = (snapshot) => {
+            quotaState = snapshot.val() || {};
+            resolve();
+          };
+        });
+        modelQuotaRef.child(quotaDate).on("value", quotaListener);
+        return quotaStateReady;
+      }
+
+      function getExcludedModels() {
+        const now = Date.now();
+        return Object.entries(quotaState)
+          .filter(
+            ([model, state]) =>
+              state?.disabledUntil > now ||
+              state?.count >= MODEL_DAILY_LIMITS[model],
+          )
+          .map(([model]) => model);
+      }
+
+      function getUsageCounts() {
+        return Object.fromEntries(
+          Object.entries(quotaState).map(([model, state]) => [
+            model,
+            Number(state?.count) || 0,
+          ]),
+        );
+      }
+
+      function getFailureCounts() {
+        return Object.fromEntries(
+          Object.entries(quotaState).map(([model, state]) => [
+            model,
+            Number(state?.failureCount) || 0,
+          ]),
+        );
+      }
+
+      function storeCooldowns(modelCooldowns) {
+        if (!modelCooldowns?.length) return;
+
+        modelCooldowns.forEach(({ model, disabledUntil, isDailyExclusion }) => {
+          quotaState[model] = {
+            ...(quotaState[model] || {}),
+            disabledUntil: Math.max(
+              quotaState[model]?.disabledUntil || 0,
+              disabledUntil,
+            ),
+            failureCount: isDailyExclusion
+              ? 2
+              : (Number(quotaState[model]?.failureCount) || 0) + 1,
+          };
+          modelQuotaRef
+            .child(quotaDate)
+            .child(model)
+            .transaction((state) => ({
+              ...(state || {}),
+              disabledUntil: Math.max(state?.disabledUntil || 0, disabledUntil),
+              failureCount: isDailyExclusion
+                ? 2
+                : (Number(state?.failureCount) || 0) + 1,
+            }));
+        });
+      }
+
+      function recordModelUsage(model, quotaResetAt) {
+        if (!model) return;
+
+        const dailyLimit = MODEL_DAILY_LIMITS[model];
+        const count = (Number(quotaState[model]?.count) || 0) + 1;
+        quotaState[model] = {
+          ...(quotaState[model] || {}),
+          count,
+          disabledUntil:
+            dailyLimit && count >= dailyLimit
+              ? Math.max(quotaState[model]?.disabledUntil || 0, quotaResetAt)
+              : quotaState[model]?.disabledUntil || 0,
+          failureCount: 0,
+        };
+
+        modelQuotaRef
+          .child(quotaDate)
+          .child(model)
+          .transaction((state) => {
+            const count = (Number(state?.count) || 0) + 1;
+
+            return {
+              ...(state || {}),
+              count,
+              disabledUntil:
+                dailyLimit && count >= dailyLimit
+                  ? Math.max(state?.disabledUntil || 0, quotaResetAt)
+                  : state?.disabledUntil || 0,
+              failureCount: 0,
+            };
+          });
+      }
+
+      syncQuotaState();
 
       chatRef.on("child_added", (snapshot) => {
         const data = snapshot.val();
@@ -228,10 +378,12 @@
       async function sendMessage() {
         const text = messageInput.value.trim();
         const sender = nameInput.value.trim() || "Anonymous";
+        const useSearch = searchToggle.checked;
         if (!text) return;
         messageInput.value = "";
         sendBtn.disabled = true;
-        const snapshot = await chatRef.once("value");
+        await syncQuotaState();
+        const snapshot = await chatRef.limitToLast(20).once("value");
         const currentChats = snapshot.val() || {};
         const contentsHistory = [];
         Object.values(currentChats).forEach((msg) => {
@@ -246,6 +398,7 @@
               parts: [{ text: msg.text }],
             });
         });
+        while (contentsHistory[0]?.role === "model") contentsHistory.shift();
         contentsHistory.push({
           role: "user",
           parts: [{ text: `[Sender: ${sender}] ${text}` }],
@@ -261,12 +414,18 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              model: GEMINI_MODEL,
               contents: contentsHistory,
-              tools: [{ googleSearch: {} }],
+              useSearch,
+              excludedModels: getExcludedModels(),
+              usageCounts: getUsageCounts(),
+              failureCounts: getFailureCounts(),
             }),
           });
           const data = await response.json();
+          storeCooldowns(data.modelCooldowns);
+          if (!response.ok) {
+            throw new Error(data.error?.message || "Gemini request failed.");
+          }
           const replyText =
             data.candidates?.[0]?.content?.parts?.[0]?.text ||
             "Gemini did not return a response.";
@@ -280,13 +439,15 @@
             text: replyText,
             type: "gemini",
             sources,
+            model: data.modelUsed,
             timestamp: Date.now(),
           });
+          recordModelUsage(data.modelUsed, data.quotaResetAt);
         } catch (error) {
           console.error(error);
           await chatRef.push({
             sender: "System",
-            text: "An error occurred while calling Gemini.",
+            text: `Gemini request failed: ${error.message}`,
             type: "system",
             timestamp: Date.now(),
           });
