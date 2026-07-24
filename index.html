@@ -3,11 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gemini 2인 실시간 관전 대화방</title>
-
+    <title>Gemini Live Chat</title>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-
     <style>
       * {
         box-sizing: border-box;
@@ -17,14 +15,13 @@
       body {
         font-family:
           -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background-color: #f0f2f5;
+        background: #f0f2f5;
         height: 100vh;
         display: flex;
         flex-direction: column;
       }
-
       header {
-        background-color: #ffffff;
+        background: #fff;
         padding: 12px 15px;
         border-bottom: 1px solid #e0e0e0;
         display: flex;
@@ -36,9 +33,9 @@
         font-size: 1.05rem;
       }
       .clear-btn {
-        background-color: #ff4d4f;
-        color: white;
-        border: none;
+        background: #ff4d4f;
+        color: #fff;
+        border: 0;
         padding: 6px 12px;
         border-radius: 6px;
         font-size: 0.8rem;
@@ -46,9 +43,8 @@
         cursor: pointer;
       }
       .clear-btn:hover {
-        background-color: #d9363e;
+        background: #d9363e;
       }
-
       #chat-box {
         flex: 1;
         overflow-y: auto;
@@ -57,7 +53,6 @@
         flex-direction: column;
         gap: 10px;
       }
-
       .msg {
         max-width: 80%;
         padding: 10px 14px;
@@ -68,34 +63,51 @@
       }
       .msg.user {
         align-self: flex-end;
-        background-color: #0084ff;
-        color: white;
+        background: #0084ff;
+        color: #fff;
         border-bottom-right-radius: 4px;
       }
       .msg.gemini {
         align-self: flex-start;
-        background-color: #ffffff;
+        background: #fff;
         color: #333;
         border: 1px solid #e0e0e0;
         border-bottom-left-radius: 4px;
       }
       .msg.system {
         align-self: center;
-        background-color: #e4e6eb;
+        background: #e4e6eb;
         color: #65676b;
         font-size: 0.8rem;
         border-radius: 12px;
         text-align: center;
       }
-
       .sender-name {
         font-size: 0.75rem;
         color: #888;
         margin-bottom: 3px;
       }
-
+      .sources {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-top: 8px;
+        padding-top: 7px;
+        border-top: 1px solid #eee;
+        font-size: 0.78rem;
+      }
+      .source-link {
+        color: #3578c9;
+        text-decoration: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .source-link:hover {
+        text-decoration: underline;
+      }
       #input-area {
-        background-color: white;
+        background: #fff;
         padding: 12px;
         border-top: 1px solid #e0e0e0;
         display: flex;
@@ -114,47 +126,43 @@
         border: 1px solid #ccc;
         border-radius: 8px;
         font-size: 1rem;
-        outline: none;
+        outline: 0;
       }
       #send-btn {
         padding: 10px 16px;
-        background-color: #0084ff;
-        color: white;
-        border: none;
+        background: #0084ff;
+        color: #fff;
+        border: 0;
         border-radius: 8px;
         font-weight: bold;
         cursor: pointer;
       }
       #send-btn:disabled {
-        background-color: #ccc;
+        background: #ccc;
       }
     </style>
   </head>
   <body>
     <header>
-      <span class="header-title">Gemini Live Chat</span>
-      <button class="clear-btn" onclick="clearChatHistory()">
-        🧹 대화 초기화
-      </button>
+      <span class="header-title">Gemini Live Chat</span
+      ><button class="clear-btn" onclick="clearChatHistory()">Clear</button>
     </header>
-
     <div id="chat-box">
-      <div class="msg system">
-        대화방에 입장했습니다. 대화가 실시간으로 공유됩니다.
-      </div>
+      <div class="msg system">Welcome. This chat is shared in real time.</div>
     </div>
-
     <div id="input-area">
-      <input type="text" id="name-input" value="나" placeholder="이름" />
       <input
         type="text"
+        id="name-input"
+        value="Anonymous"
+        placeholder="Name"
+      /><input
+        type="text"
         id="message-input"
-        placeholder="Gemini에게 질문하기..."
+        placeholder="Ask Gemini..."
         onkeypress="if (event.key === 'Enter') sendMessage();"
-      />
-      <button id="send-btn" onclick="sendMessage()">전송</button>
+      /><button id="send-btn" onclick="sendMessage()">Send</button>
     </div>
-
     <script>
       const firebaseConfig = {
         apiKey: "AIzaSyApfX-vV9xNdHxwh2NAxJQEmLmDKXSwH_0",
@@ -166,13 +174,10 @@
         messagingSenderId: "438937384325",
         appId: "1:438937384325:web:426b9a22b3c30ac32f00ec",
       };
-
       const GEMINI_MODEL = "gemini-3.6-flash";
-
       firebase.initializeApp(firebaseConfig);
       const db = firebase.database();
       const chatRef = db.ref("chats");
-
       const chatBox = document.getElementById("chat-box");
       const messageInput = document.getElementById("message-input");
       const nameInput = document.getElementById("name-input");
@@ -180,85 +185,77 @@
 
       chatRef.on("child_added", (snapshot) => {
         const data = snapshot.val();
-        appendMessage(data.sender, data.text, data.type);
+        appendMessage(data.sender, data.text, data.type, data.sources);
       });
-
       chatRef.on("value", (snapshot) => {
-        if (!snapshot.exists()) {
+        if (!snapshot.exists())
           chatBox.innerHTML =
-            '<div class="msg system">대화 기록이 초기화되었습니다. 새로운 대화를 시작해보세요!</div>';
-        }
+            '<div class="msg system">Chat history was cleared.</div>';
       });
-
-      function appendMessage(sender, text, type) {
+      function appendMessage(sender, text, type, sources = []) {
         const msgDiv = document.createElement("div");
         msgDiv.classList.add("msg", type);
-
         if (type !== "system") {
           const nameDiv = document.createElement("div");
           nameDiv.classList.add("sender-name");
           nameDiv.innerText = sender;
           msgDiv.appendChild(nameDiv);
         }
-
         const textDiv = document.createElement("div");
         textDiv.innerText = text;
         msgDiv.appendChild(textDiv);
-
+        if (type === "gemini" && Array.isArray(sources) && sources.length) {
+          const sourcesDiv = document.createElement("div");
+          sourcesDiv.classList.add("sources");
+          sources.forEach((source) => {
+            if (!source?.uri) return;
+            const sourceLink = document.createElement("a");
+            sourceLink.classList.add("source-link");
+            sourceLink.href = source.uri;
+            sourceLink.target = "_blank";
+            sourceLink.rel = "noopener noreferrer";
+            sourceLink.textContent = `\uD83D\uDD0D \uCD9C\uCC98: ${source.title || source.uri}`;
+            sourcesDiv.appendChild(sourceLink);
+          });
+          if (sourcesDiv.childElementCount) msgDiv.appendChild(sourcesDiv);
+        }
         chatBox.appendChild(msgDiv);
         chatBox.scrollTop = chatBox.scrollHeight;
       }
-
       async function clearChatHistory() {
-        if (
-          confirm(
-            "대화방의 모든 기록을 지우시겠습니까?\n상대방의 화면에서도 대화가 지워집니다.",
-          )
-        ) {
-          await chatRef.remove();
-        }
+        if (confirm("Clear all chat history?")) await chatRef.remove();
       }
-
       async function sendMessage() {
         const text = messageInput.value.trim();
-        const sender = nameInput.value.trim() || "익명";
-
+        const sender = nameInput.value.trim() || "Anonymous";
         if (!text) return;
-
         messageInput.value = "";
         sendBtn.disabled = true;
-
         const snapshot = await chatRef.once("value");
         const currentChats = snapshot.val() || {};
-
         const contentsHistory = [];
-
         Object.values(currentChats).forEach((msg) => {
-          if (msg.type === "user") {
+          if (msg.type === "user")
             contentsHistory.push({
               role: "user",
-              parts: [{ text: `[발신자: ${msg.sender}] ${msg.text}` }],
+              parts: [{ text: `[Sender: ${msg.sender}] ${msg.text}` }],
             });
-          } else if (msg.type === "gemini") {
+          else if (msg.type === "gemini")
             contentsHistory.push({
               role: "model",
               parts: [{ text: msg.text }],
             });
-          }
         });
-
         contentsHistory.push({
           role: "user",
-          parts: [{ text: `[발신자: ${sender}] ${text}` }],
+          parts: [{ text: `[Sender: ${sender}] ${text}` }],
         });
-
         await chatRef.push({
-          sender: sender,
-          text: text,
+          sender,
+          text,
           type: "user",
           timestamp: Date.now(),
         });
-
         try {
           const response = await fetch("/api/chat", {
             method: "POST",
@@ -266,25 +263,30 @@
             body: JSON.stringify({
               model: GEMINI_MODEL,
               contents: contentsHistory,
+              tools: [{ googleSearch: {} }],
             }),
           });
-
           const data = await response.json();
           const replyText =
             data.candidates?.[0]?.content?.parts?.[0]?.text ||
-            "Gemini 답변을 가져오지 못했습니다.";
-
+            "Gemini did not return a response.";
+          const sources = (
+            data.candidates?.[0]?.groundingMetadata?.groundingChunks || []
+          )
+            .map((chunk) => ({ title: chunk.web?.title, uri: chunk.web?.uri }))
+            .filter((source) => source.uri);
           await chatRef.push({
-            sender: "Gemini 🤖",
+            sender: "Gemini",
             text: replyText,
             type: "gemini",
+            sources,
             timestamp: Date.now(),
           });
         } catch (error) {
           console.error(error);
           await chatRef.push({
-            sender: "시스템",
-            text: "⚠️ Gemini API 호출 중 오류가 발생했습니다.",
+            sender: "System",
+            text: "An error occurred while calling Gemini.",
             type: "system",
             timestamp: Date.now(),
           });

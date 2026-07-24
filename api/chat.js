@@ -3,8 +3,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { contents, model } = req.body;
-  // Vercel 서버에 안전하게 저장된 API 키를 불러옵니다.
+  const { contents, model, tools } = req.body;
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
   try {
@@ -13,7 +12,7 @@ export default async function handler(req, res) {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents }),
+        body: JSON.stringify({ contents, tools }),
       },
     );
 
