@@ -128,14 +128,6 @@
         font-size: 1rem;
         outline: 0;
       }
-      .search-toggle {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        color: #65676b;
-        font-size: 0.78rem;
-        white-space: nowrap;
-      }
       #send-btn {
         padding: 10px 16px;
         background: #0084ff;
@@ -164,9 +156,7 @@
         id="name-input"
         value="Anonymous"
         placeholder="Name"
-      /><label class="search-toggle"
-        ><input type="checkbox" id="search-toggle" /> Web search</label
-      ><input
+      /><input
         type="text"
         id="message-input"
         placeholder="Ask Gemini..."
@@ -191,15 +181,12 @@
       const chatBox = document.getElementById("chat-box");
       const messageInput = document.getElementById("message-input");
       const nameInput = document.getElementById("name-input");
-      const searchToggle = document.getElementById("search-toggle");
       const sendBtn = document.getElementById("send-btn");
       const MODEL_DAILY_LIMITS = {
         "gemini-3.6-flash": 20,
         "gemini-3.5-flash": 20,
         "gemini-3.5-flash-lite": 500,
         "gemini-3.1-flash-lite": 500,
-        "gemini-2.5-flash": 20,
-        "gemini-2.5-flash-lite": 20,
       };
       let quotaDate = "";
       let quotaState = {};
@@ -242,21 +229,32 @@
         return quotaStateReady;
       }
 
+      function getModelKey(model) {
+        return model.replace(/[.#$\[\]]/g, "_");
+      }
+
+      function getModelState(model) {
+        return quotaState[getModelKey(model)] || {};
+      }
+
       function getExcludedModels() {
         const now = Date.now();
-        return Object.entries(quotaState)
+        return Object.values(quotaState)
           .filter(
-            ([model, state]) =>
+            (state) =>
               state?.disabledUntil > now ||
-              state?.count >= MODEL_DAILY_LIMITS[model],
+              state?.count >= MODEL_DAILY_LIMITS[state?.model],
           )
-          .map(([model]) => model);
+          .map((state) => state.model)
+          .filter(Boolean);
       }
 
       function getUsageCounts() {
         return Object.fromEntries(
-          Object.entries(quotaState).map(([model, state]) => [
-            model,
+          Object.values(quotaState)
+            .filter((state) => state?.model)
+            .map((state) => [
+            state.model,
             Number(state?.count) || 0,
           ]),
         );
@@ -264,8 +262,10 @@
 
       function getFailureCounts() {
         return Object.fromEntries(
-          Object.entries(quotaState).map(([model, state]) => [
-            model,
+          Object.values(quotaState)
+            .filter((state) => state?.model)
+            .map((state) => [
+            state.model,
             Number(state?.failureCount) || 0,
           ]),
         );
@@ -275,21 +275,24 @@
         if (!modelCooldowns?.length) return;
 
         modelCooldowns.forEach(({ model, disabledUntil, isDailyExclusion }) => {
-          quotaState[model] = {
-            ...(quotaState[model] || {}),
+          const key = getModelKey(model);
+          quotaState[key] = {
+            ...(quotaState[key] || {}),
+            model,
             disabledUntil: Math.max(
-              quotaState[model]?.disabledUntil || 0,
+              quotaState[key]?.disabledUntil || 0,
               disabledUntil,
             ),
             failureCount: isDailyExclusion
               ? 2
-              : (Number(quotaState[model]?.failureCount) || 0) + 1,
+              : (Number(quotaState[key]?.failureCount) || 0) + 1,
           };
           modelQuotaRef
             .child(quotaDate)
-            .child(model)
+            .child(key)
             .transaction((state) => ({
               ...(state || {}),
+              model,
               disabledUntil: Math.max(state?.disabledUntil || 0, disabledUntil),
               failureCount: isDailyExclusion
                 ? 2
@@ -302,25 +305,29 @@
         if (!model) return;
 
         const dailyLimit = MODEL_DAILY_LIMITS[model];
-        const count = (Number(quotaState[model]?.count) || 0) + 1;
-        quotaState[model] = {
-          ...(quotaState[model] || {}),
+        const key = getModelKey(model);
+        const state = getModelState(model);
+        const count = (Number(state.count) || 0) + 1;
+        quotaState[key] = {
+          ...state,
+          model,
           count,
           disabledUntil:
             dailyLimit && count >= dailyLimit
-              ? Math.max(quotaState[model]?.disabledUntil || 0, quotaResetAt)
-              : quotaState[model]?.disabledUntil || 0,
+              ? Math.max(state.disabledUntil || 0, quotaResetAt)
+              : state.disabledUntil || 0,
           failureCount: 0,
         };
 
         modelQuotaRef
           .child(quotaDate)
-          .child(model)
+          .child(key)
           .transaction((state) => {
             const count = (Number(state?.count) || 0) + 1;
 
             return {
               ...(state || {}),
+              model,
               count,
               disabledUntil:
                 dailyLimit && count >= dailyLimit
@@ -378,26 +385,26 @@
       async function sendMessage() {
         const text = messageInput.value.trim();
         const sender = nameInput.value.trim() || "Anonymous";
-        const useSearch = searchToggle.checked;
         if (!text) return;
         messageInput.value = "";
         sendBtn.disabled = true;
         await syncQuotaState();
-        const snapshot = await chatRef.limitToLast(20).once("value");
+        const snapshot = await chatRef.limitToLast(60).once("value");
         const currentChats = snapshot.val() || {};
-        const contentsHistory = [];
-        Object.values(currentChats).forEach((msg) => {
+        const contentsHistory = Object.values(currentChats)
+          .filter((msg) => msg.type === "user" || msg.type === "gemini")
+          .slice(-19)
+          .map((msg) => {
           if (msg.type === "user")
-            contentsHistory.push({
+            return {
               role: "user",
               parts: [{ text: `[Sender: ${msg.sender}] ${msg.text}` }],
-            });
-          else if (msg.type === "gemini")
-            contentsHistory.push({
+            };
+          return {
               role: "model",
               parts: [{ text: msg.text }],
-            });
-        });
+            };
+          });
         while (contentsHistory[0]?.role === "model") contentsHistory.shift();
         contentsHistory.push({
           role: "user",
@@ -415,7 +422,6 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               contents: contentsHistory,
-              useSearch,
               excludedModels: getExcludedModels(),
               usageCounts: getUsageCounts(),
               failureCounts: getFailureCounts(),

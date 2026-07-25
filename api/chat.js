@@ -4,14 +4,11 @@ const GENERAL_MODELS = [
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
 ];
-const SEARCH_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
 const DAILY_MODEL_LIMITS = {
   "gemini-3.6-flash": 20,
   "gemini-3.5-flash": 20,
   "gemini-3.5-flash-lite": 500,
   "gemini-3.1-flash-lite": 500,
-  "gemini-2.5-flash": 20,
-  "gemini-2.5-flash-lite": 20,
 };
 const TRANSIENT_COOLDOWN_MS = 2 * 60 * 1000;
 
@@ -65,17 +62,13 @@ function getNextQuotaReset() {
   return localReset.getTime() - getPacificOffset(localReset);
 }
 
-async function generateContent(model, contents, tools, apiKey) {
-  const body = { contents };
-
-  if (tools) body.tools = tools;
-
+async function generateContent(model, contents, apiKey) {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ contents }),
     },
   );
   const data = await response.json();
@@ -90,14 +83,12 @@ export default async function handler(req, res) {
 
   const {
     contents,
-    useSearch = false,
     excludedModels = [],
     usageCounts = {},
     failureCounts = {},
   } = req.body;
   const apiKey = process.env.GEMINI_API_KEY;
-  const models = useSearch ? SEARCH_MODELS : GENERAL_MODELS;
-  const tools = useSearch ? [{ googleSearch: {} }] : undefined;
+  const models = GENERAL_MODELS;
   const dailyExclusions = models.filter(
     (model) =>
       DAILY_MODEL_LIMITS[model] &&
@@ -116,7 +107,7 @@ export default async function handler(req, res) {
     for (const model of models) {
       if (unavailableModels.has(model)) continue;
 
-      const result = await generateContent(model, contents, tools, apiKey);
+      const result = await generateContent(model, contents, apiKey);
 
       if (result.response.status !== 429) {
         return res.status(result.response.status).json({
