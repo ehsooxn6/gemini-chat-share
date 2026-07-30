@@ -11,6 +11,7 @@ const DAILY_MODEL_LIMITS = {
   "gemini-3.1-flash-lite": 500,
 };
 const TRANSIENT_COOLDOWN_MS = 2 * 60 * 1000;
+const GEMINI_REQUEST_TIMEOUT_MS = 30 * 1000;
 
 function getPacificDateParts(date) {
   return Object.fromEntries(
@@ -63,17 +64,34 @@ function getNextQuotaReset() {
 }
 
 async function generateContent(model, contents, apiKey) {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents }),
-    },
-  );
-  const data = await response.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GEMINI_REQUEST_TIMEOUT_MS);
 
-  return { response, data };
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents }),
+        signal: controller.signal,
+      },
+    );
+    const data = await response.json();
+
+    return { response, data };
+  } catch (error) {
+    if (error.name === "AbortError") {
+      return {
+        response: { status: 503 },
+        data: { error: { message: "Gemini request timed out." } },
+      };
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export default async function handler(req, res) {
