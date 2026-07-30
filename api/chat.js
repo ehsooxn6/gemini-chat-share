@@ -11,6 +11,7 @@ const DAILY_MODEL_LIMITS = {
   "gemini-3.1-flash-lite": 500,
 };
 const TRANSIENT_COOLDOWN_MS = 2 * 60 * 1000;
+const OVERLOAD_COOLDOWN_MS = 30 * 60 * 1000;
 const GEMINI_REQUEST_TIMEOUT_MS = 30 * 1000;
 
 function getPacificDateParts(date) {
@@ -159,7 +160,7 @@ export default async function handler(req, res) {
       } else {
         modelCooldowns.push({
           model,
-          disabledUntil: Date.now() + TRANSIENT_COOLDOWN_MS,
+          disabledUntil: Date.now() + OVERLOAD_COOLDOWN_MS,
           isDailyExclusion: false,
           trackFailure: false,
         });
