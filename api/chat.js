@@ -101,40 +101,64 @@ export default async function handler(req, res) {
       : []),
   ]);
   const modelCooldowns = [];
+  const attemptedModels = [];
   const quotaResetAt = getNextQuotaReset();
+  let lastRetryableResult;
 
   try {
     for (const model of models) {
       if (unavailableModels.has(model)) continue;
 
       const result = await generateContent(model, contents, apiKey);
+      attemptedModels.push(model);
 
-      if (result.response.status !== 429) {
+      if (result.response.status !== 429 && result.response.status !== 503) {
         return res.status(result.response.status).json({
           ...result.data,
           modelUsed: model,
           modelCooldowns,
+          attemptedModels,
           quotaResetAt,
         });
       }
 
-      const usageCount = Number(usageCounts[model]) || 0;
-      const failureCount = Number(failureCounts[model]) || 0;
-      const dailyLimit = DAILY_MODEL_LIMITS[model];
-      const isDailyExclusion =
-        (dailyLimit && usageCount >= dailyLimit) || failureCount >= 1;
-      const disabledUntil = isDailyExclusion
-        ? quotaResetAt
-        : Date.now() + TRANSIENT_COOLDOWN_MS;
+      if (result.response.status === 429) {
+        const usageCount = Number(usageCounts[model]) || 0;
+        const failureCount = Number(failureCounts[model]) || 0;
+        const dailyLimit = DAILY_MODEL_LIMITS[model];
+        const isDailyExclusion =
+          (dailyLimit && usageCount >= dailyLimit) || failureCount >= 1;
+        const disabledUntil = isDailyExclusion
+          ? quotaResetAt
+          : Date.now() + TRANSIENT_COOLDOWN_MS;
 
-      modelCooldowns.push({ model, disabledUntil, isDailyExclusion });
+        modelCooldowns.push({
+          model,
+          disabledUntil,
+          isDailyExclusion,
+          trackFailure: true,
+        });
+      } else {
+        modelCooldowns.push({
+          model,
+          disabledUntil: Date.now() + TRANSIENT_COOLDOWN_MS,
+          isDailyExclusion: false,
+          trackFailure: false,
+        });
+      }
+
+      lastRetryableResult = result;
     }
 
-    return res.status(429).json({
+    const status = lastRetryableResult?.response.status || 429;
+    return res.status(status).json({
       error: {
-        message: "All available Gemini models have reached their limit.",
+        message:
+          lastRetryableResult?.data?.error?.message ||
+          "All available Gemini models have reached their limit.",
       },
       modelCooldowns,
+      attemptedModels,
       quotaResetAt,
     });
   } catch (error) {

@@ -274,8 +274,10 @@
       function storeCooldowns(modelCooldowns) {
         if (!modelCooldowns?.length) return;
 
-        modelCooldowns.forEach(({ model, disabledUntil, isDailyExclusion }) => {
+        modelCooldowns.forEach(
+          ({ model, disabledUntil, isDailyExclusion, trackFailure }) => {
           const key = getModelKey(model);
+          const failureCount = Number(quotaState[key]?.failureCount) || 0;
           quotaState[key] = {
             ...(quotaState[key] || {}),
             model,
@@ -285,7 +287,9 @@
             ),
             failureCount: isDailyExclusion
               ? 2
-              : (Number(quotaState[key]?.failureCount) || 0) + 1,
+              : trackFailure
+                ? failureCount + 1
+                : failureCount,
           };
           modelQuotaRef
             .child(quotaDate)
@@ -296,9 +300,12 @@
               disabledUntil: Math.max(state?.disabledUntil || 0, disabledUntil),
               failureCount: isDailyExclusion
                 ? 2
-                : (Number(state?.failureCount) || 0) + 1,
+                : trackFailure
+                  ? (Number(state?.failureCount) || 0) + 1
+                  : Number(state?.failureCount) || 0,
             }));
-        });
+          },
+        );
       }
 
       function recordModelUsage(model, quotaResetAt) {
@@ -430,6 +437,11 @@
           const data = await response.json();
           storeCooldowns(data.modelCooldowns);
           if (!response.ok) {
+            console.error({
+              message: data.error?.message,
+              attemptedModels: data.attemptedModels,
+              modelCooldowns: data.modelCooldowns,
+            });
             throw new Error(data.error?.message || "Gemini request failed.");
           }
           const replyText =
