@@ -14,6 +14,13 @@ const TRANSIENT_COOLDOWN_MS = 2 * 60 * 1000;
 const OVERLOAD_COOLDOWN_MS = 30 * 60 * 1000;
 const GEMINI_REQUEST_TIMEOUT_MS = 30 * 1000;
 
+function getModels(selectedModel) {
+  const selectedIndex = GENERAL_MODELS.indexOf(selectedModel);
+  return selectedIndex === -1
+    ? GENERAL_MODELS
+    : GENERAL_MODELS.slice(selectedIndex);
+}
+
 function getPacificDateParts(date) {
   return Object.fromEntries(
     new Intl.DateTimeFormat("en-US", {
@@ -105,9 +112,10 @@ export default async function handler(req, res) {
     excludedModels = [],
     usageCounts = {},
     failureCounts = {},
+    selectedModel,
   } = req.body;
   const apiKey = process.env.GEMINI_API_KEY;
-  const models = GENERAL_MODELS;
+  const models = getModels(selectedModel);
   const dailyExclusions = models.filter(
     (model) =>
       DAILY_MODEL_LIMITS[model] &&

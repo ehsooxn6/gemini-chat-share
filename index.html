@@ -123,12 +123,31 @@
       .source-link:hover {
         text-decoration: underline;
       }
-      #input-area {
+      #composer {
         background: #fff;
-        padding: 12px;
         border-top: 1px solid #e0e0e0;
+      }
+      #input-area {
         display: flex;
         gap: 8px;
+        padding: 12px;
+      }
+      #message-wrapper {
+        flex: 1;
+        min-width: 0;
+        position: relative;
+      }
+      #message-wrapper::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: 12px;
+        width: 6px;
+        height: 6px;
+        border-right: 1.5px solid #555;
+        border-bottom: 1.5px solid #555;
+        pointer-events: none;
+        transform: translateY(-70%) rotate(45deg);
       }
       #name-input {
         width: 70px;
@@ -137,9 +156,27 @@
         border-radius: 8px;
         text-align: center;
       }
+      #model-select {
+        position: absolute;
+        top: 50%;
+        right: 7px;
+        width: 84px;
+        transform: translateY(-50%);
+        border: 0;
+        background: transparent;
+        color: #555;
+        font-size: 0.78rem;
+        font-weight: bold;
+        padding: 4px 18px 4px 0;
+        text-align: right;
+        text-align-last: right;
+        appearance: none;
+        -webkit-appearance: none;
+      }
       #message-input {
-        flex: 1;
+        width: 100%;
         padding: 10px;
+        padding-right: 96px;
         border: 1px solid #ccc;
         border-radius: 8px;
         font-size: 1rem;
@@ -170,18 +207,29 @@
     <div id="chat-box">
       <div class="msg system">Welcome. This chat is shared in real time.</div>
     </div>
-    <div id="input-area">
-      <input
-        type="text"
-        id="name-input"
-        value="Anonymous"
-        placeholder="Name"
-      /><input
-        type="text"
-        id="message-input"
-        placeholder="Ask Gemini..."
-        onkeypress="if (event.key === 'Enter') sendMessage();"
-      /><button id="send-btn" onclick="sendMessage()">Send</button>
+    <div id="composer">
+      <div id="input-area">
+        <input
+          type="text"
+          id="name-input"
+          value="Anonymous"
+          placeholder="Name"
+        /><div id="message-wrapper">
+          <input
+            type="text"
+            id="message-input"
+            placeholder="Ask Gemini..."
+            onkeypress="if (event.key === 'Enter') sendMessage();"
+          /><select id="model-select" aria-label="Model">
+            <option value="">Auto</option>
+            <option value="gemini-3.6-flash">3.6 Flash</option>
+            <option value="gemini-3.5-flash">3.5 Flash</option>
+            <option value="gemini-3.5-flash-lite">3.5 Lite</option>
+            <option value="gemini-3.1-flash-lite">3.1 Lite</option>
+          </select>
+        </div>
+        <button id="send-btn" onclick="sendMessage()">Send</button>
+      </div>
     </div>
     <script>
       const firebaseConfig = {
@@ -201,8 +249,10 @@
       const chatBox = document.getElementById("chat-box");
       const messageInput = document.getElementById("message-input");
       const nameInput = document.getElementById("name-input");
+      const modelSelect = document.getElementById("model-select");
       const sendBtn = document.getElementById("send-btn");
       const SAVED_NAME_KEY = "gemini-chat-share-name";
+      const SAVED_MODEL_KEY = "gemini-chat-share-model";
       const MODEL_DAILY_LIMITS = {
         "gemini-3.6-flash": 20,
         "gemini-3.5-flash": 20,
@@ -217,10 +267,19 @@
       const savedName = localStorage.getItem(SAVED_NAME_KEY);
       if (savedName) nameInput.value = savedName;
 
+      const savedModel = localStorage.getItem(SAVED_MODEL_KEY);
+      if (Array.from(modelSelect.options).some((option) => option.value === savedModel)) {
+        modelSelect.value = savedModel;
+      }
+
       nameInput.addEventListener("input", () => {
         const name = nameInput.value.trim();
         if (name) localStorage.setItem(SAVED_NAME_KEY, name);
         else localStorage.removeItem(SAVED_NAME_KEY);
+      });
+
+      modelSelect.addEventListener("change", () => {
+        localStorage.setItem(SAVED_MODEL_KEY, modelSelect.value);
       });
 
       function getPacificDateKey() {
@@ -503,6 +562,7 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               contents: contentsHistory,
+              selectedModel: modelSelect.value,
               excludedModels: getExcludedModels(),
               usageCounts: getUsageCounts(),
               failureCounts: getFailureCounts(),
