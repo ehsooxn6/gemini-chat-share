@@ -45,6 +45,23 @@
       .clear-btn:hover {
         background: #d9363e;
       }
+      .header-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .export-btn {
+        background: #fff;
+        color: #555;
+        border: 1px solid #ccc;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .export-btn:hover {
+        background: #f5f5f5;
+      }
       #chat-box {
         flex: 1;
         overflow-y: auto;
@@ -144,8 +161,11 @@
   </head>
   <body>
     <header>
-      <span class="header-title">Gemini Live Chat</span
-      ><button class="clear-btn" onclick="clearChatHistory()">Clear</button>
+      <span class="header-title">Gemini Live Chat</span>
+      <div class="header-actions">
+        <button class="export-btn" onclick="exportChat()">Export</button>
+        <button class="clear-btn" onclick="clearChatHistory()">Clear</button>
+      </div>
     </header>
     <div id="chat-box">
       <div class="msg system">Welcome. This chat is shared in real time.</div>
@@ -398,6 +418,50 @@
       }
       async function clearChatHistory() {
         if (confirm("Clear all chat history?")) await chatRef.remove();
+      }
+      function getKoreanTimestamp() {
+        const now = new Date();
+        const values = Object.fromEntries(
+          new Intl.DateTimeFormat("en-US", {
+            timeZone: "Asia/Seoul",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hourCycle: "h23",
+          })
+            .formatToParts(now)
+            .filter(({ type }) => type !== "literal")
+            .map(({ type, value }) => [type, value]),
+        );
+        const milliseconds = String(now.getMilliseconds()).padStart(3, "0");
+
+        return `${values.year}-${values.month}-${values.day}-${values.hour}${values.minute}${values.second}-${milliseconds}`;
+      }
+      async function exportChat() {
+        const snapshot = await chatRef.once("value");
+        const messages = Object.values(snapshot.val() || {}).filter(
+          (message) => message.type === "user" || message.type === "gemini",
+        );
+        if (!messages.length) {
+          alert("There are no messages to export.");
+          return;
+        }
+
+        const transcript = messages
+          .map((message) => `${message.sender}\n\n${message.text}`)
+          .join("\n\n");
+        const blob = new Blob([transcript], {
+          type: "text/plain;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `gemini-chat-${getKoreanTimestamp()}.txt`;
+        link.click();
+        URL.revokeObjectURL(url);
       }
       async function sendMessage() {
         const text = messageInput.value.trim();
