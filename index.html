@@ -182,6 +182,7 @@
       const messageInput = document.getElementById("message-input");
       const nameInput = document.getElementById("name-input");
       const sendBtn = document.getElementById("send-btn");
+      const SAVED_NAME_KEY = "gemini-chat-share-name";
       const MODEL_DAILY_LIMITS = {
         "gemini-3.6-flash": 20,
         "gemini-3.5-flash": 20,
@@ -192,6 +193,15 @@
       let quotaState = {};
       let quotaListener;
       let quotaStateReady = Promise.resolve();
+
+      const savedName = localStorage.getItem(SAVED_NAME_KEY);
+      if (savedName) nameInput.value = savedName;
+
+      nameInput.addEventListener("input", () => {
+        const name = nameInput.value.trim();
+        if (name) localStorage.setItem(SAVED_NAME_KEY, name);
+        else localStorage.removeItem(SAVED_NAME_KEY);
+      });
 
       function getPacificDateKey() {
         const values = Object.fromEntries(
